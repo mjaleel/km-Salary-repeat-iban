@@ -73,6 +73,7 @@ uploaded_file = st.file_uploader("📂 اختر ملف الرواتب (Excel)", 
 
 if uploaded_file is not None:
     try:
+        # قراءة الملف كـ String لضمان عدم تغيير البيانات
         df = pd.read_excel(uploaded_file, dtype=str)
         df.columns = df.columns.str.strip()
         
@@ -110,18 +111,21 @@ if uploaded_file is not None:
                     progress_bar.progress((index + 1) / len(df))
                     
                     # 1. فحص المستفيد
+                    # نأخذ القيمة كما هي بالضبط من الملف
                     raw_iban = str(row[iban_col])
                     
-                    # --- التعديل المحدث (Check Capital Letters) ---
-                    # نتأكد أن الحقل ليس فارغاً (nan) قبل الفحص لتجنب الأخطاء الوهمية
-                    if raw_iban.lower() != 'nan' and len(raw_iban) > 1:
-                        # إذا كان النص الأصلي لا يساوي النص الكبير، فهذا يعني وجود حرف صغير
-                        if raw_iban != raw_iban.upper():
-                             critical_errors.append(f"❌ [صف {row_num}] خطأ في حالة الأحرف: يجب أن تكون كابتل لتر (Capital) فقط: {raw_iban}")
-                    # -----------------------------------------------
+                    # نتأكد أن الخلية ليست فارغة
+                    if raw_iban.lower() == 'nan':
+                        raw_iban = ""
+
+                    # --- الفحص القاطع (Regex) ---
+                    # هذا السطر يبحث عن أي حرف من a إلى z (صغير) داخل النص
+                    if re.search(r'[a-z]', raw_iban):
+                         critical_errors.append(f"❌ [صف {row_num}] خطأ أحرف صغيرة: الايبان يحتوي على حرف صغير (Small Letter): {raw_iban}")
+                    # -----------------------------
 
                     if " " in raw_iban:
-                        warnings_list.append(f"⚠️ [صف {row_num}] مسافة زائدة في حساب المستفيد (سيتم حذفها عند التنظيف).")
+                        warnings_list.append(f"⚠️ [صف {row_num}] مسافة زائدة في حساب المستفيد.")
                     
                     # تحويل النص للكبير الآن لغرض الفحص الرياضي فقط
                     clean_iban = raw_iban.replace(" ", "").strip().upper()
@@ -139,11 +143,11 @@ if uploaded_file is not None:
                     # 2. فحص الدافع
                     if payer_col:
                         raw_payer = str(row[payer_col])
+                        if raw_payer.lower() == 'nan': raw_payer = ""
                         
                         # --- فحص الدافع أيضاً ---
-                        if raw_payer.lower() != 'nan' and len(raw_payer) > 1:
-                            if raw_payer != raw_payer.upper():
-                                critical_errors.append(f"❌ [صف {row_num}] حساب الدافع يحتوي على أحرف صغيرة: {raw_payer}")
+                        if re.search(r'[a-z]', raw_payer):
+                            critical_errors.append(f"❌ [صف {row_num}] حساب الدافع يحتوي على أحرف صغيرة: {raw_payer}")
                         # -----------------------
 
                         if " " in raw_payer:
@@ -185,7 +189,7 @@ if uploaded_file is not None:
             
             df_clean = df.copy()
             
-            # تنظيف المستفيد
+            # تنظيف المستفيد - هنا نقوم بالإصلاح التلقائي (تحويل للكبير)
             df_clean[iban_col] = df_clean[iban_col].astype(str).str.replace(" ", "").str.strip().str.upper()
             
             # تنظيف الدافع
@@ -210,4 +214,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"حدث خطأ: {e}")
-
+ 
