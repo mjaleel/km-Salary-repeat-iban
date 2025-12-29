@@ -17,7 +17,6 @@ st.markdown("""
     .main { direction: rtl; text-align: right; }
     .stAlert { direction: rtl; text-align: right; }
     div[data-testid="stMarkdownContainer"] p { font-size: 16px; }
-    /* تنسيق الجداول */
     .stDataFrame { direction: ltr; } 
 </style>
 """, unsafe_allow_html=True)
@@ -34,11 +33,9 @@ def find_columns(df):
         # البحث عن حساب المستفيد
         if (("beneficiary" in c_low) and ("account" in c_low or "acount" in c_low or "iban" in c_low)) and "payer" not in c_low:
             iban_col = col
-            
         # البحث عن حساب الدافع
         if "payer" in c_low and ("account" in c_low or "acount" in c_low):
             payer_col = col
-            
         # البحث عن المبلغ
         if "amount" in c_low or "مبلغ" in c_low or "راتب" in c_low:
             amount_col = col
@@ -46,8 +43,27 @@ def find_columns(df):
     return iban_col, amount_col, payer_col
 
 def clean_amount_val(val):
+    """
+    دالة تنظيف ذكية للمبالغ:
+    - تتعامل مع 1,000,000
+    - تتعامل مع 1.000.000 (تنسيق عراقي شائع بالخطأ)
+    """
     val_str = str(val)
-    clean = re.sub(r'[^\\d.]', '', val_str)
+    
+    # 1. حذف المسافات
+    val_str = val_str.replace(" ", "")
+    
+    # 2. حذف الفواصل (,)
+    val_str = val_str.replace(",", "")
+    
+    # 3. معالجة النقاط (.)
+    # إذا كان هناك أكثر من نقطة (مثلاً 1.250.000)، نحذفها كلها ونعتبرها فواصل آلاف
+    if val_str.count(".") > 1:
+        val_str = val_str.replace(".", "")
+    
+    # 4. إبقاء الأرقام والنقطة العشرية الوحيدة (إن وجدت)
+    clean = re.sub(r'[^\d.]', '', val_str)
+    
     try:
         return float(clean)
     except:
@@ -73,13 +89,12 @@ uploaded_file = st.file_uploader("📂 اختر ملف الرواتب (Excel)", 
 
 if uploaded_file is not None:
     try:
-        # قراءة الملف كـ String لضمان عدم تغيير البيانات
+        # قراءة الملف كنص لضمان دقة الايبان، ثم نعالج المبالغ يدوياً
         df = pd.read_excel(uploaded_file, dtype=str)
         df.columns = df.columns.str.strip()
         
         iban_col, amount_col, payer_col = find_columns(df)
         
-        # عرض حالة الأعمدة
         c1, c2, c3 = st.columns(3)
         with c1:
             if iban_col: st.success(f"✅ المستفيد: {iban_col}")
@@ -100,9 +115,9 @@ if uploaded_file is not None:
         with tab1:
             if st.button("بدء الفحص", key="btn_audit"):
                 
-                critical_errors = [] # أخطاء قاتلة (أحمر)
-                warnings_list = []   # تنبيهات فقط (أصفر)
-                seen_ibans = {}      # لتتبع التكرار
+                critical_errors = []
+                warnings_list = []
+                seen_ibans = {}
                 
                 progress_bar = st.progress(0)
                 
@@ -110,73 +125,60 @@ if uploaded_file is not None:
                     row_num = index + 2
                     progress_bar.progress((index + 1) / len(df))
                     
-                    # 1. فحص المستفيد
-                    # نأخذ القيمة كما هي بالضبط من الملف
+                    # --- 1. فحص المستفيد ---
                     raw_iban = str(row[iban_col])
-                    
-                    # نتأكد أن الخلية ليست فارغة
-                    if raw_iban.lower() == 'nan':
-                        raw_iban = ""
+                    if raw_iban.lower() == 'nan': raw_iban = ""
 
-                    # --- الفحص القاطع (Regex) ---
-                    # هذا السطر يبحث عن أي حرف من a إلى z (صغير) داخل النص
+                    # >> كشف الأحرف الصغيرة (Regex) <<
                     if re.search(r'[a-z]', raw_iban):
-                         critical_errors.append(f"❌ [صف {row_num}] خطأ أحرف صغيرة: الايبان يحتوي على حرف صغير (Small Letter): {raw_iban}")
-                    # -----------------------------
+                         critical_errors.append(f"❌ [صف {row_num}] تنسيق خطأ: الايبان يحتوي على أحرف صغيرة (Small): {raw_iban}")
 
                     if " " in raw_iban:
                         warnings_list.append(f"⚠️ [صف {row_num}] مسافة زائدة في حساب المستفيد.")
                     
-                    # تحويل النص للكبير الآن لغرض الفحص الرياضي فقط
                     clean_iban = raw_iban.replace(" ", "").strip().upper()
                     
-                    # أ) فحص الصحة الرياضية (قاتل)
                     if not check_iban_mod97(clean_iban):
-                        critical_errors.append(f"❌ [صف {row_num}] حساب المستفيد خطأ (رياضياً أو طول الرقم): {clean_iban}")
+                        critical_errors.append(f"❌ [صف {row_num}] حساب المستفيد خطأ (رياضياً أو الطول): {clean_iban}")
                     
-                    # ب) فحص التكرار (تنبيه فقط)
                     if clean_iban in seen_ibans:
-                        warnings_list.append(f"📝 [صف {row_num}] تنبيه تكرار: هذا الحساب مكرر مع الصف {seen_ibans[clean_iban]}.")
+                        warnings_list.append(f"📝 [صف {row_num}] تنبيه تكرار: مكرر مع الصف {seen_ibans[clean_iban]}.")
                     else:
                         seen_ibans[clean_iban] = row_num
 
-                    # 2. فحص الدافع
+                    # --- 2. فحص الدافع ---
                     if payer_col:
                         raw_payer = str(row[payer_col])
                         if raw_payer.lower() == 'nan': raw_payer = ""
                         
-                        # --- فحص الدافع أيضاً ---
                         if re.search(r'[a-z]', raw_payer):
                             critical_errors.append(f"❌ [صف {row_num}] حساب الدافع يحتوي على أحرف صغيرة: {raw_payer}")
-                        # -----------------------
 
-                        if " " in raw_payer:
-                            warnings_list.append(f"⚠️ [صف {row_num}] مسافة في حساب الدافع.")
-                        
                         clean_payer = raw_payer.replace(" ", "").strip().upper()
-                        if not check_iban_mod97(clean_payer):
+                        if raw_payer and not check_iban_mod97(clean_payer):
                             critical_errors.append(f"❌ [صف {row_num}] حساب الدافع خطأ: {clean_payer}")
                             
-                    # 3. فحص المبلغ
+                    # --- 3. فحص المبلغ (تم تحسينه) ---
                     amt = clean_amount_val(row[amount_col])
-                    if amt <= 0:
-                        critical_errors.append(f"❌ [صف {row_num}] المبلغ صفر أو غير صالح.")
+                    
+                    # نعتبر المبلغ خطأ فقط إذا كان صفر، ولكن نتجاهل الصفوف الفارغة تماماً
+                    is_empty_row = (raw_iban == "" and str(row[amount_col]).lower() == 'nan')
+                    
+                    if not is_empty_row and amt <= 0:
+                        critical_errors.append(f"❌ [صف {row_num}] المبلغ صفر أو غير صالح (القيمة: {row[amount_col]})")
 
-                # --- عرض النتائج ---
-                
-                # 1. عرض الأخطاء القاتلة (الأحمر)
+                # --- النتائج ---
                 if len(critical_errors) > 0:
-                    st.error(f"⛔ وجدنا {len(critical_errors)} أخطاء يجب إصلاحها يدوياً في الملف الأصلي:")
+                    st.error(f"⛔ وجدنا {len(critical_errors)} أخطاء:")
                     for err in critical_errors:
                         st.write(err)
                     st.markdown("---")
                 else:
-                    st.success("✅ لا توجد أخطاء رياضية أو حسابية.")
+                    st.success("✅ الملف سليم تماماً (لا توجد أخطاء رياضية أو تنسيق).")
 
-                # 2. عرض التنبيهات (الأصفر)
                 if len(warnings_list) > 0:
-                    st.warning(f"⚠️ ملاحظات وتنبيهات ({len(warnings_list)}) - (يمكن تجاهلها إذا كنت متأكداً):")
-                    with st.expander("عرض قائمة التنبيهات (التكرار والمسافات)", expanded=False):
+                    st.warning(f"⚠️ يوجد {len(warnings_list)} تنبيهات (يمكن تجاهلها):")
+                    with st.expander("عرض التنبيهات"):
                         for warn in warnings_list:
                             st.write(warn)
                 
@@ -185,18 +187,18 @@ if uploaded_file is not None:
 
         # === التبويب 2: التنظيف ===
         with tab2:
-            st.info("سيقوم هذا القسم بحذف المسافات وإصلاح صيغة المبالغ وتحويل الحروف للكبير ليكون الملف جاهزاً.")
+            st.info("هنا يتم إصلاح الملف (تحويل للكبير، إصلاح المبالغ) تلقائياً.")
             
             df_clean = df.copy()
             
-            # تنظيف المستفيد - هنا نقوم بالإصلاح التلقائي (تحويل للكبير)
+            # تنظيف المستفيد
             df_clean[iban_col] = df_clean[iban_col].astype(str).str.replace(" ", "").str.strip().str.upper()
             
             # تنظيف الدافع
             if payer_col:
                 df_clean[payer_col] = df_clean[payer_col].astype(str).str.replace(" ", "").str.strip().str.upper()
                 
-            # تنظيف المبلغ
+            # تنظيف المبلغ باستخدام الدالة المحسنة
             df_clean[amount_col] = df_clean[amount_col].apply(lambda x: f"{clean_amount_val(x):.0f}")
             
             st.dataframe(df_clean.head())
@@ -208,7 +210,7 @@ if uploaded_file is not None:
             st.download_button(
                 label="📥 تحميل الملف الجاهز (Excel)",
                 data=buffer,
-                file_name="Salary_Ready_For_Notepad.xlsx",
+                file_name="Salary_Cleaned.xlsx",
                 mime="application/vnd.ms-excel"
             )
 
