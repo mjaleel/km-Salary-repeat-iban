@@ -112,15 +112,18 @@ if uploaded_file is not None:
                     # 1. فحص المستفيد
                     raw_iban = str(row[iban_col])
                     
-                    # --- التعديل الجديد: فحص الأحرف الصغيرة (Small Letters) ---
-                    if re.search(r'[a-z]', raw_iban):
-                         critical_errors.append(f"❌ [صف {row_num}] خطأ تنسيق: الايبان يحتوي على حروف صغيرة (Small Letters): {raw_iban}")
-                    # -------------------------------------------------------
+                    # --- التعديل المحدث (Check Capital Letters) ---
+                    # نتأكد أن الحقل ليس فارغاً (nan) قبل الفحص لتجنب الأخطاء الوهمية
+                    if raw_iban.lower() != 'nan' and len(raw_iban) > 1:
+                        # إذا كان النص الأصلي لا يساوي النص الكبير، فهذا يعني وجود حرف صغير
+                        if raw_iban != raw_iban.upper():
+                             critical_errors.append(f"❌ [صف {row_num}] خطأ في حالة الأحرف: يجب أن تكون كابتل لتر (Capital) فقط: {raw_iban}")
+                    # -----------------------------------------------
 
                     if " " in raw_iban:
                         warnings_list.append(f"⚠️ [صف {row_num}] مسافة زائدة في حساب المستفيد (سيتم حذفها عند التنظيف).")
                     
-                    # تحويل النص للكبير الآن لغرض الفحص الرياضي
+                    # تحويل النص للكبير الآن لغرض الفحص الرياضي فقط
                     clean_iban = raw_iban.replace(" ", "").strip().upper()
                     
                     # أ) فحص الصحة الرياضية (قاتل)
@@ -137,10 +140,11 @@ if uploaded_file is not None:
                     if payer_col:
                         raw_payer = str(row[payer_col])
                         
-                        # --- التعديل الجديد: فحص الأحرف الصغيرة للدافع أيضاً ---
-                        if re.search(r'[a-z]', raw_payer):
-                             critical_errors.append(f"❌ [صف {row_num}] حساب الدافع يحتوي على حروف صغيرة: {raw_payer}")
-                        # -----------------------------------------------------
+                        # --- فحص الدافع أيضاً ---
+                        if raw_payer.lower() != 'nan' and len(raw_payer) > 1:
+                            if raw_payer != raw_payer.upper():
+                                critical_errors.append(f"❌ [صف {row_num}] حساب الدافع يحتوي على أحرف صغيرة: {raw_payer}")
+                        # -----------------------
 
                         if " " in raw_payer:
                             warnings_list.append(f"⚠️ [صف {row_num}] مسافة في حساب الدافع.")
@@ -206,4 +210,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"حدث خطأ: {e}")
- 
+
