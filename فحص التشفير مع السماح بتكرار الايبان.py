@@ -47,7 +47,7 @@ def find_columns(df):
 
 def clean_amount_val(val):
     val_str = str(val)
-    clean = re.sub(r'[^\d.]', '', val_str)
+    clean = re.sub(r'[^\\d.]', '', val_str)
     try:
         return float(clean)
     except:
@@ -112,14 +112,20 @@ if uploaded_file is not None:
                     # 1. فحص المستفيد
                     raw_iban = str(row[iban_col])
                     
+                    # --- التعديل الجديد: فحص الأحرف الصغيرة (Small Letters) ---
+                    if re.search(r'[a-z]', raw_iban):
+                         critical_errors.append(f"❌ [صف {row_num}] خطأ تنسيق: الايبان يحتوي على حروف صغيرة (Small Letters): {raw_iban}")
+                    # -------------------------------------------------------
+
                     if " " in raw_iban:
                         warnings_list.append(f"⚠️ [صف {row_num}] مسافة زائدة في حساب المستفيد (سيتم حذفها عند التنظيف).")
                     
+                    # تحويل النص للكبير الآن لغرض الفحص الرياضي
                     clean_iban = raw_iban.replace(" ", "").strip().upper()
                     
                     # أ) فحص الصحة الرياضية (قاتل)
                     if not check_iban_mod97(clean_iban):
-                        critical_errors.append(f"❌ [صف {row_num}] حساب المستفيد خطأ (رياضياً أو تنسيق): {clean_iban}")
+                        critical_errors.append(f"❌ [صف {row_num}] حساب المستفيد خطأ (رياضياً أو طول الرقم): {clean_iban}")
                     
                     # ب) فحص التكرار (تنبيه فقط)
                     if clean_iban in seen_ibans:
@@ -130,6 +136,12 @@ if uploaded_file is not None:
                     # 2. فحص الدافع
                     if payer_col:
                         raw_payer = str(row[payer_col])
+                        
+                        # --- التعديل الجديد: فحص الأحرف الصغيرة للدافع أيضاً ---
+                        if re.search(r'[a-z]', raw_payer):
+                             critical_errors.append(f"❌ [صف {row_num}] حساب الدافع يحتوي على حروف صغيرة: {raw_payer}")
+                        # -----------------------------------------------------
+
                         if " " in raw_payer:
                             warnings_list.append(f"⚠️ [صف {row_num}] مسافة في حساب الدافع.")
                         
@@ -165,7 +177,7 @@ if uploaded_file is not None:
 
         # === التبويب 2: التنظيف ===
         with tab2:
-            st.info("سيقوم هذا القسم بحذف المسافات وإصلاح صيغة المبالغ ليكون الملف جاهزاً.")
+            st.info("سيقوم هذا القسم بحذف المسافات وإصلاح صيغة المبالغ وتحويل الحروف للكبير ليكون الملف جاهزاً.")
             
             df_clean = df.copy()
             
@@ -194,3 +206,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"حدث خطأ: {e}")
+ 
